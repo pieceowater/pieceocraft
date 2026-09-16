@@ -167,17 +167,42 @@ testing locally before ever touching Ansible.
 
 ## Versions
 
-The wrapper image (`itzg/minecraft-bedrock-server`) is pinned to an exact
-tag, not `:latest` — an unrelated `docker compose pull` shouldn't be able to
-change how the container boots. The Bedrock server *binary* inside it is the
-opposite case on purpose: `VERSION=LATEST` re-checks and upgrades on every
-container restart, because Bedrock's client/server protocol is
-version-sensitive and mobile clients auto-update through the App/Play
-Store — holding the server binary back is what actually breaks connections
-here, not what prevents it.
+Both the wrapper image (`itzg/minecraft-bedrock-server`) and the actual
+Bedrock server binary inside it (`MC_VERSION` in `docker-compose.yml`, piped
+through from `deploy.yml`'s `mc_version`) are pinned to exact versions, not
+`:latest` / `VERSION=LATEST`.
 
-To move the wrapper image itself up, bump the tag in `docker-compose.yml`
-and run `make pull`.
+This wasn't the original plan — `VERSION=LATEST` sounds like the right
+default, since Bedrock's client/server protocol is version-sensitive and
+mobile clients auto-update through the App/Play Store, so in *principle*
+holding the server back is what should break connections, not prevent them.
+In practice, the newest build available as of 2026-09-16 (`1.26.51.1`) is
+simply broken on Linux: it logs `Accepting clients on [::]:19132` and
+`Server started.` as if everything's fine, but never actually binds a
+working socket — confirmed by checking the kernel's own UDP socket table
+inside the container (no listener on `19132` in either protocol family),
+reproduced identically under both Docker's default bridge network and
+`--network host`. `1.26.45.1` is the last version confirmed to actually
+bind and pass traffic.
+
+**Bumping `mc_version` later**, once Mojang ships something past `1.26.51.1`
+and you want to move off the pin: test it stands alone before trusting it in
+the real deploy —
+
+```bash
+docker run --rm -e EULA=TRUE -e VERSION=LATEST -p 29132:19132/udp \
+  itzg/minecraft-bedrock-server:2026.8.2
+```
+
+then check its logs for `IPv4 supported, port: 19132` — that line's
+*presence* is what separates a real working boot from this exact silent
+failure (a boot that's actually broken this way just stops after `Server
+started.` instead). Only then update `mc_version` in `deploy.yml` and
+`docker-compose.yml`'s own default and `make deploy`.
+
+To move the wrapper image itself up (a separate thing from the Bedrock
+binary version above), bump the tag in `docker-compose.yml` and run
+`make pull`.
 
 ## Troubleshooting
 
@@ -202,6 +227,16 @@ hand. `make ps` on your laptop confirms the container itself is up.
 first-boot Bedrock binary download taking a while on a slow connection —
 `make logs` in another terminal shows progress. If it's stuck for several
 minutes with no log output at all, `make logs` and check for a crash instead.
+
+**Phone shows a connection error with `WorldName` set to something other than
+`PieceocraftWorld`, or the server just won't respond at all.** Check
+`docker inspect pieceocraft-bedrock --format '{{.State.Health.Status}}'` on
+the server. If it says `unhealthy`, the Bedrock binary itself has likely
+silently failed to bind its port — see [Versions](#versions) above, this is
+a known failure mode for a bad `mc_version` pin, not a networking problem on
+your end. `docker compose logs bedrock` should show `IPv4 supported, port:
+19132` on a genuinely healthy boot; its absence (log just stops after
+`Server started.`) confirms it.
 
 **Someone's gamertag in `mc_ops` isn't getting operator.** The image
 resolves gamertags to XUIDs over the internet at container startup — a

@@ -6,11 +6,26 @@
 #
 # The wrapper image itself is pinned to an exact tag below, so an unrelated
 # `docker compose pull` can't change how the container boots. The Bedrock
-# binary INSIDE it is a different matter — VERSION=LATEST is deliberate, not
-# a shortcut: Bedrock's client/server protocol is version-sensitive and
-# mobile clients auto-update through the App/Play Store, so holding the
-# server binary back is what actually breaks connections, not what prevents
-# it. VERSION=LATEST re-checks and upgrades on every container restart.
+# binary INSIDE it is a DIFFERENT, EXPLICIT pin (MC_VERSION below) rather
+# than VERSION=LATEST — confirmed by hand that the latest build available as
+# of 2026-09-16 (1.26.51.1) is flat-out broken on Linux: it logs "Accepting
+# clients on [::]:19132" and "Server started." but never actually binds a
+# working socket (checked the kernel's own UDP socket table inside the
+# container — no listener on 19132 in either protocol family, reproduced
+# identically under both Docker's bridge network and --network host, so
+# it's the binary itself, not anything about this compose file). 1.26.45.1
+# is the last version confirmed to bind correctly, and not coincidentally —
+# Bedrock's client/server protocol is version-sensitive, so it's worth
+# matching whatever your own client is on anyway (check a connecting
+# device's Minecraft settings, or the "Version:" line in a failed-connection
+# error screen).
+#
+# Bumping this later: only do it after checking a fresh LATEST actually
+# binds (`docker run --rm -e EULA=TRUE -e VERSION=LATEST -p 29132:19132/udp
+# itzg/minecraft-bedrock-server:<tag>`, then look for "IPv4 supported, port:
+# 19132" in its logs — that line's presence is what separates a working boot
+# from this exact silent failure) — Mojang ships Bedrock updates often
+# enough that this WILL need bumping eventually for client compatibility.
 #
 # Every other setting below reads from .env, which ansible/deploy.yml
 # generates from vars.yml — see that file's own header for why. Run this
@@ -24,18 +39,16 @@ services:
     container_name: pieceocraft-bedrock
     environment:
       EULA: "TRUE"
-      VERSION: LATEST
+      VERSION: ${MC_VERSION:-1.26.45.1}
       # Heads-up line on the console, then a clean `stop` this many seconds
       # later, on `docker compose stop` — without it a slow save can get cut
       # off by Docker's own kill timeout instead of finishing.
       STOP_SERVER_ANNOUNCE_DELAY: "10"
-      # Without this, the Bedrock binary logs "Accepting clients on
-      # [::]:19132" and "Server started." but never actually binds a working
-      # socket on Linux — confirmed by hand (kernel socket table shows no
-      # listener on 19132 in either protocol family, reproduced identically
-      # under both bridge and host networking, so it's the binary itself,
-      # not this compose file's networking). The image ships an LD_PRELOAD
-      # fix (/opt/bds-ipv6fix.so) for exactly this, just off by default.
+      # Makes the binary actually bind both an IPv4 and an IPv6 socket
+      # instead of the single dual-stack one it tries by default (see the
+      # MC_VERSION comment above — this alone did NOT fix 1.26.51.1's
+      # breakage, but it's a real, needed fix in general and costs nothing
+      # to leave on).
       ENABLE_BDS_V6BIND_FIX: "true"
       SERVER_NAME: ${SERVER_NAME:-Pieceocraft}
       LEVEL_NAME: ${LEVEL_NAME:-PieceocraftWorld}
