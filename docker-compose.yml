@@ -29,6 +29,14 @@ services:
       # later, on `docker compose stop` — without it a slow save can get cut
       # off by Docker's own kill timeout instead of finishing.
       STOP_SERVER_ANNOUNCE_DELAY: "10"
+      # Without this, the Bedrock binary logs "Accepting clients on
+      # [::]:19132" and "Server started." but never actually binds a working
+      # socket on Linux — confirmed by hand (kernel socket table shows no
+      # listener on 19132 in either protocol family, reproduced identically
+      # under both bridge and host networking, so it's the binary itself,
+      # not this compose file's networking). The image ships an LD_PRELOAD
+      # fix (/opt/bds-ipv6fix.so) for exactly this, just off by default.
+      ENABLE_BDS_V6BIND_FIX: "true"
       SERVER_NAME: ${SERVER_NAME:-Pieceocraft}
       LEVEL_NAME: ${LEVEL_NAME:-PieceocraftWorld}
       LEVEL_SEED: ${LEVEL_SEED:-}
