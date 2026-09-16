@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Pieceocraft's nightly world backup
+
+[Timer]
+OnCalendar={{ mc_auto_backup_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

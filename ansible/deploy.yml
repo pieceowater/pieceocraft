@@ -19,7 +19,10 @@
 #      `docker compose up -d` on the server alone (no Ansible involved)
 #      reproduces the exact same server — which is exactly what every other
 #      Makefile target (up/down/logs/backup/...) relies on.
-#   3. Runs `docker compose up -d` and waits for the world to finish loading.
+#   3. Runs `docker compose up -d`, waits for the world to finish loading,
+#      then applies mc_gamerules (see the vars: block).
+#   4. Installs a systemd timer that backs up the world nightly, on the
+#      server itself, without stopping it — see mc_auto_backup below.
 #
 # Requirements: ansible-core only — no extra collections, no Python deps.
 #
@@ -86,6 +89,25 @@
     # confirmed to work, and it happens to match this server's own phone's
     # client version too). Check that comment before bumping this.
     mc_version: "1.26.45.1"
+
+    # Gamerules reapplied (harmlessly — re-setting an already-true value is a
+    # no-op) on every deploy: keepinventory so dying doesn't cost you your
+    # stuff, doimmediaterespawn to skip the death screen wait — both aimed at
+    # two people playing casually together, not a hardcore survival mode.
+    # Add/remove entries here freely, no other file needs to know about it.
+    mc_gamerules:
+      keepinventory: "true"
+      doimmediaterespawn: "true"
+
+    # Nightly world backup via systemd timer, running ON the server so it
+    # doesn't depend on your laptop being on (unlike `make backup`, which is
+    # the same idea run by hand from your machine). Uses Bedrock's own
+    # save-hold/query/resume so it never stops the server or disconnects
+    # anyone. Backups land in {{ project_dir }}/backups — pull one down the
+    # same way `make restore` reads one.
+    mc_auto_backup: true
+    mc_auto_backup_time: "04:00"
+    mc_auto_backup_retention_days: 14
 
   tasks:
 
@@ -217,6 +239,55 @@
       delay: 3
       until: mc_boot.rc == 0
       changed_when: false
+
+    # gamerule commands have no "already set" response worth branching on
+    # (Bedrock just answers with the new value either way), and re-applying
+    # an already-true rule is harmless, so this always reports "changed"
+    # rather than pretending to be idempotent about it.
+    - name: Apply gamerules
+      ansible.builtin.command:
+        cmd: docker compose exec -T bedrock send-command "gamerule {{ item.key }} {{ item.value }}"
+        chdir: "{{ project_dir }}"
+      loop: "{{ mc_gamerules | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}={{ item.value }}"
+      changed_when: false
+
+    # ---------- 4. Nightly backup (systemd timer) ----------
+
+    - name: Render the nightly backup script
+      ansible.builtin.template:
+        src: backup.sh.j2
+        dest: "{{ project_dir }}/backup.sh"
+        mode: "0755"
+      when: mc_auto_backup
+
+    - name: Install the backup systemd service
+      ansible.builtin.template:
+        src: pieceocraft-backup.service.j2
+        dest: /etc/systemd/system/pieceocraft-backup.service
+        mode: "0644"
+      become: true
+      when: mc_auto_backup
+      register: backup_service_unit
+
+    - name: Install the backup systemd timer
+      ansible.builtin.template:
+        src: pieceocraft-backup.timer.j2
+        dest: /etc/systemd/system/pieceocraft-backup.timer
+        mode: "0644"
+      become: true
+      when: mc_auto_backup
+      register: backup_timer_unit
+
+    - name: Enable and start the backup timer
+      ansible.builtin.systemd:
+        name: pieceocraft-backup.timer
+        daemon_reload: "{{ (backup_service_unit is changed) or (backup_timer_unit is changed) }}"
+        state: started
+        enabled: true
+      become: true
+      when: mc_auto_backup
 
     - name: Print the connection details
       ansible.builtin.debug:

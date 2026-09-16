@@ -165,6 +165,21 @@ no `.env` at all just uses the inline defaults baked into the file
 (`Pieceocraft` / `PieceocraftWorld` / survival / etc.), which is handy for
 testing locally before ever touching Ansible.
 
+**`mc_gamerules`** in `deploy.yml`'s `vars:` block — a plain dict of
+gamerule → value, reapplied on every `make deploy` (`keepinventory` and
+`doimmediaterespawn` by default, aimed at two people playing casually
+together rather than a hardcore survival run). Add or remove entries there
+freely.
+
+**`mc_auto_backup`** in the same block — a systemd timer installed on the
+server itself that backs up the world nightly (`mc_auto_backup_time`,
+default `04:00`) without stopping it, using Bedrock's own live
+save-hold/query/resume sequence. Backups land in `backups/` **on the
+server**, pruned past `mc_auto_backup_retention_days` (default 14). This is
+the same idea as `make backup`, just running on a timer instead of by hand —
+pull one down from the server the same way `make restore` reads one, or just
+`scp` it directly. Set `mc_auto_backup: false` to turn it off.
+
 ## Versions
 
 Both the wrapper image (`itzg/minecraft-bedrock-server`) and the actual
