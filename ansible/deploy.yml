@@ -21,8 +21,6 @@
 #      Makefile target (up/down/logs/backup/...) relies on.
 #   3. Runs `docker compose up -d`, waits for the world to finish loading,
 #      then applies mc_gamerules (see the vars: block).
-#   4. Installs a systemd timer that backs up the world nightly, on the
-#      server itself, without stopping it — see mc_auto_backup below.
 #
 # Requirements: ansible-core only — no extra collections, no Python deps.
 #
@@ -98,16 +96,6 @@
     mc_gamerules:
       keepinventory: "true"
       doimmediaterespawn: "true"
-
-    # Nightly world backup via systemd timer, running ON the server so it
-    # doesn't depend on your laptop being on (unlike `make backup`, which is
-    # the same idea run by hand from your machine). Uses Bedrock's own
-    # save-hold/query/resume so it never stops the server or disconnects
-    # anyone. Backups land in {{ project_dir }}/backups — pull one down the
-    # same way `make restore` reads one.
-    mc_auto_backup: true
-    mc_auto_backup_time: "04:00"
-    mc_auto_backup_retention_days: 14
 
   tasks:
 
@@ -252,42 +240,6 @@
       loop_control:
         label: "{{ item.key }}={{ item.value }}"
       changed_when: false
-
-    # ---------- 4. Nightly backup (systemd timer) ----------
-
-    - name: Render the nightly backup script
-      ansible.builtin.template:
-        src: backup.sh.j2
-        dest: "{{ project_dir }}/backup.sh"
-        mode: "0755"
-      when: mc_auto_backup
-
-    - name: Install the backup systemd service
-      ansible.builtin.template:
-        src: pieceocraft-backup.service.j2
-        dest: /etc/systemd/system/pieceocraft-backup.service
-        mode: "0644"
-      become: true
-      when: mc_auto_backup
-      register: backup_service_unit
-
-    - name: Install the backup systemd timer
-      ansible.builtin.template:
-        src: pieceocraft-backup.timer.j2
-        dest: /etc/systemd/system/pieceocraft-backup.timer
-        mode: "0644"
-      become: true
-      when: mc_auto_backup
-      register: backup_timer_unit
-
-    - name: Enable and start the backup timer
-      ansible.builtin.systemd:
-        name: pieceocraft-backup.timer
-        daemon_reload: "{{ (backup_service_unit is changed) or (backup_timer_unit is changed) }}"
-        state: started
-        enabled: true
-      become: true
-      when: mc_auto_backup
 
     - name: Print the connection details
       ansible.builtin.debug:

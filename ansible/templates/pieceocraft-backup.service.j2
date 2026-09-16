@@ -1,9 +1,0 @@
-[Unit]
-Description=Pieceocraft nightly world backup
-After=docker.service
-
-[Service]
-Type=oneshot
-User={{ ansible_user }}
-WorkingDirectory={{ project_dir }}
-ExecStart={{ project_dir }}/backup.sh
