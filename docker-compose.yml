@@ -76,4 +76,11 @@ services:
     # back to a hard kill after its timeout instead of a graceful save.
     stdin_open: true
     tty: true
+    # send-command (what `make cmd` uses) locates the running bedrock_server
+    # process by reading /proc/*/exe, which needs SYS_PTRACE — without it,
+    # every `make cmd` fails with "Permission denied" / "failed to search
+    # for bedrock server process" on a host with restricted ptrace_scope
+    # (the Linux default on many distros, confirmed on this one).
+    cap_add:
+      - SYS_PTRACE
     restart: unless-stopped
