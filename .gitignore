@@ -1,0 +1,24 @@
+# Runtime state created by the container on first run — the actual Bedrock
+# world, its saves and its own generated permissions/allowlist files.
+data/
+
+# Real settings (world name, gamemode, ops list, etc.) — nothing here is a
+# secret, but it's personal. The committed template is ansible/vars.yml.example
+ansible/vars.yml
+
+# Names your actual server (address, SSH user) — specific to your network.
+# The committed template is ansible/inventory.ini.example
+ansible/inventory.ini
+
+# Generated ON THE SERVER by deploy.yml from vars.yml + deploy.yml's own
+# defaults. Never hand-edit, never commit — re-run `make deploy` instead.
+.env
+
+# World backups pulled down by `make backup`
+/backups/
+
+# Ansible scratch
+*.retry
+
+# OS noise
+.DS_Store

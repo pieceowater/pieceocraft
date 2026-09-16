@@ -1,0 +1,58 @@
+# Pieceocraft — a Minecraft Bedrock Dedicated Server, reachable over Tailscale.
+#
+# One service, one image: itzg/minecraft-bedrock-server
+# (github.com/itzg/docker-minecraft-bedrock-server) — it downloads and runs
+# Mojang's own Bedrock Dedicated Server binary, this is not a reimplementation.
+#
+# The wrapper image itself is pinned to an exact tag below, so an unrelated
+# `docker compose pull` can't change how the container boots. The Bedrock
+# binary INSIDE it is a different matter — VERSION=LATEST is deliberate, not
+# a shortcut: Bedrock's client/server protocol is version-sensitive and
+# mobile clients auto-update through the App/Play Store, so holding the
+# server binary back is what actually breaks connections, not what prevents
+# it. VERSION=LATEST re-checks and upgrades on every container restart.
+#
+# Every other setting below reads from .env, which ansible/deploy.yml
+# generates from vars.yml — see that file's own header for why. Run this
+# directly with plain `docker compose up -d` (no Ansible, no .env) and it
+# still comes up fine, just with the defaults baked into this file.
+name: pieceocraft
+
+services:
+  bedrock:
+    image: itzg/minecraft-bedrock-server:2026.8.2
+    container_name: pieceocraft-bedrock
+    environment:
+      EULA: "TRUE"
+      VERSION: LATEST
+      # Heads-up line on the console, then a clean `stop` this many seconds
+      # later, on `docker compose stop` — without it a slow save can get cut
+      # off by Docker's own kill timeout instead of finishing.
+      STOP_SERVER_ANNOUNCE_DELAY: "10"
+      SERVER_NAME: ${SERVER_NAME:-Pieceocraft}
+      LEVEL_NAME: ${LEVEL_NAME:-PieceocraftWorld}
+      LEVEL_SEED: ${LEVEL_SEED:-}
+      GAMEMODE: ${GAMEMODE:-survival}
+      DIFFICULTY: ${DIFFICULTY:-easy}
+      ALLOW_CHEATS: ${ALLOW_CHEATS:-false}
+      MAX_PLAYERS: ${MAX_PLAYERS:-10}
+      ONLINE_MODE: ${ONLINE_MODE:-true}
+      VIEW_DISTANCE: ${VIEW_DISTANCE:-16}
+      ALLOW_LIST: ${ALLOW_LIST:-false}
+      ALLOW_LIST_USERS: ${ALLOW_LIST_USERS:-}
+      OPS: ${OPS:-}
+      SERVER_PORT: ${SERVER_PORT:-19132}
+      SERVER_PORT_V6: ${SERVER_PORT_V6:-19133}
+      TZ: ${TZ:-Asia/Almaty}
+    ports:
+      - "${SERVER_PORT:-19132}:19132/udp"
+      - "${SERVER_PORT_V6:-19133}:19133/udp"
+    volumes:
+      - ./data:/data
+    # The wrapper's entrypoint reads the console over stdin (needed to send
+    # `stop` for a clean save on `docker compose stop`, and for `make
+    # console` / `docker attach`) — without these two, a stop has to fall
+    # back to a hard kill after its timeout instead of a graceful save.
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

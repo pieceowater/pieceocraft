@@ -1,0 +1,220 @@
+---
+# =============================================================================
+# Pieceocraft — bring up a Minecraft Bedrock Dedicated Server
+# =============================================================================
+#
+# Runs against a REMOTE server over SSH, named in inventory.ini — not against
+# whatever machine you type `ansible-playbook` on. That machine (your laptop,
+# say) only needs Ansible and SSH access; the target needs nothing but Ubuntu
+# (or any apt-based Linux) and a user with sudo. Docker, this repo's own
+# checkout, the container and the world itself (data/) all end up living on
+# the server.
+#
+# What this playbook does, in order:
+#   0. Installs Docker on the target if it's missing, and checks out this
+#      repo there (see project_dir below) — the only part that needs sudo.
+#   1. Creates the data/ directory the container bind-mounts.
+#   2. Renders .env from vars.yml plus this file's own defaults — the ONLY
+#      configuration surface. docker-compose.yml just reads it, so
+#      `docker compose up -d` on the server alone (no Ansible involved)
+#      reproduces the exact same server — which is exactly what every other
+#      Makefile target (up/down/logs/backup/...) relies on.
+#   3. Runs `docker compose up -d` and waits for the world to finish loading.
+#
+# Requirements: ansible-core only — no extra collections, no Python deps.
+#
+# Run:
+#   make deploy ANSIBLE_ARGS="--ask-pass --ask-become-pass"   (from the repo root)
+#   cd ansible && ansible-playbook deploy.yml --ask-pass --ask-become-pass
+#
+# The two --ask-* flags are for password-based SSH: --ask-pass is the login
+# password, needed on every run; --ask-become-pass is the sudo password, only
+# actually used the first time (installing Docker) — omit it once that's
+# done, or just leave it, since an unused become password is harmless. Using
+# an SSH key instead? Drop both flags and point at the key in inventory.ini.
+#
+# -----------------------------------------------------------------------------
+# Moving to a different server: point inventory.ini at the new host and run
+# `make deploy` there — everything above reproduces itself from scratch. The
+# one thing this playbook deliberately never touches is the world itself
+# (data/): run `make backup` on the old server first, then after `make
+# deploy` on the new one, `make restore FILE=...`. See README.md's "Moving to
+# a different server" section for the full walkthrough.
+# =============================================================================
+
+- name: Deploy the Pieceocraft Bedrock server
+  hosts: pieceocraft
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    # Where this repo lives on the TARGET server (not your laptop). Defaults
+    # under the SSH user's own home directory so the initial checkout needs
+    # no sudo. Change pieceocraft_dir if you'd rather it lived somewhere else.
+    pieceocraft_dir: "{{ ansible_env.HOME }}/pieceocraft"
+
+    pieceocraft_repo_url: https://github.com/pieceowater/pieceocraft.git
+    pieceocraft_repo_branch: main
+    project_dir: "{{ pieceocraft_dir }}"
+
+    # UDP ports. These only ever matter paired with the matching `ports:`
+    # lines in docker-compose.yml — to change one, edit both in the same commit.
+    mc_server_port: 19132
+    mc_server_port_v6: 19133
+
+    # Verifies connecting players are signed into a real Xbox Live account,
+    # and enables Bedrock's own connection encryption. Leave this on unless
+    # you have a specific reason not to.
+    mc_online_mode: true
+
+    # How many chunks of world are sent to each client. Higher looks better
+    # and costs more CPU/bandwidth per player; 16 is stock Bedrock's own
+    # default.
+    mc_view_distance: 16
+
+    # Tailscale is the actual access control here — only devices on your
+    # tailnet can reach the server at all. This is an optional SECOND layer
+    # on top of that. Flip to true and list mc_allow_list_users in vars.yml
+    # to turn it on.
+    mc_allow_list: false
+
+    mc_timezone: Asia/Almaty
+
+  tasks:
+
+    # ---------- 0. Bootstrap: Docker and this repo, on the target ----------
+    #
+    # The only section that needs sudo, and only on a machine that doesn't
+    # already have Docker — every task here is skipped once docker_check
+    # confirms it's present, so a second run against an already-bootstrapped
+    # server touches none of this. Follows Docker's own documented Ubuntu
+    # install steps (docs.docker.com/engine/install/ubuntu/) rather than the
+    # distro's own `docker.io` package, which tends to lag behind upstream.
+    - name: Check whether Docker is already installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Docker's prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, git]
+        state: present
+        update_cache: true
+      become: true
+      when: docker_check.rc != 0
+
+    - name: Add Docker's official apt repository
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: "https://download.docker.com/linux/ubuntu"
+        suites: "{{ ansible_distribution_release }}"
+        components: stable
+        signed_by: "https://download.docker.com/linux/ubuntu/gpg"
+        state: present
+      become: true
+      when: docker_check.rc != 0
+
+    - name: Install Docker Engine and the Compose plugin
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      become: true
+      when: docker_check.rc != 0
+
+    - name: Make sure Docker is running and starts on boot
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+      become: true
+      when: docker_check.rc != 0
+
+    # Lets {{ ansible_user }} run `docker compose` without sudo, which every
+    # later task in this playbook (and every Makefile target) assumes. Group
+    # membership only takes effect on a fresh login session — reset_connection
+    # forces exactly that, right here, so the very next task already sees it.
+    - name: "Add {{ ansible_user }} to the docker group"
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+      become: true
+      register: docker_group
+
+    - name: Start a fresh connection so the new group membership applies
+      ansible.builtin.meta: reset_connection
+      when: docker_group is changed
+
+    # No sudo needed from here: this clones into the user's own home
+    # directory. Re-running just fast-forwards to the latest commit — data/
+    # lives inside this same tree but is gitignored, so it's untracked as far
+    # as git is concerned and this never touches it.
+    - name: Check out this repo on the server
+      ansible.builtin.git:
+        repo: "{{ pieceocraft_repo_url }}"
+        dest: "{{ project_dir }}"
+        version: "{{ pieceocraft_repo_branch }}"
+
+    # ---------- 1. Directory layout ----------
+
+    # Docker would create this itself on first `up`, but as a root-owned
+    # directory, so create it up front as the invoking user to keep ownership
+    # sane — the image picks its own in-container UID/GID from this
+    # directory's owner.
+    - name: Create the data directory
+      ansible.builtin.file:
+        path: "{{ project_dir }}/data"
+        state: directory
+        mode: "0755"
+
+    # ---------- 2. Configuration ----------
+
+    - name: Write the server configuration (.env)
+      ansible.builtin.template:
+        src: env.j2
+        dest: "{{ project_dir }}/.env"
+        mode: "0644"
+
+    # ---------- 3. Start the server ----------
+
+    # docker compose diffs the resolved config (env vars included) against
+    # what's actually running and recreates the container on its own when
+    # .env changed since the last run — nothing extra needed here for a
+    # config change (new gamemode, etc.) to take effect.
+    - name: Start the server (docker compose up -d)
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ project_dir }}"
+      register: compose_up
+      changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr or 'Recreated' in compose_up.stderr"
+
+    # First boot downloads the actual Bedrock server binary from Mojang and
+    # generates a fresh world — can take a minute or two depending on the
+    # server's own connection. "Server started." is the line the Bedrock
+    # binary itself prints once the world has finished loading and it's
+    # ready to accept connections.
+    - name: Wait for the world to finish loading
+      ansible.builtin.shell:
+        cmd: docker compose logs --no-color 2>&1 | grep -q "Server started."
+        chdir: "{{ project_dir }}"
+      register: mc_boot
+      retries: 40
+      delay: 3
+      until: mc_boot.rc == 0
+      changed_when: false
+
+    - name: Print the connection details
+      ansible.builtin.debug:
+        msg: >-
+          Server is up. On the Bedrock app (any platform, including mobile):
+          Play -> Servers -> Add Server -> address {{ inventory_hostname }},
+          port {{ mc_server_port }}. The connecting device needs Tailscale
+          connected to actually reach that address.

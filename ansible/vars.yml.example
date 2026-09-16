@@ -1,0 +1,37 @@
+---
+# Pieceocraft settings — your real values. Gitignored; this file is the
+# template. Nothing here is a secret (Bedrock has no server password), it's
+# just personal — the world's name, who gets to build/break anywhere — kept
+# out of git the same way ansible/inventory.ini is.
+#
+#     cp ansible/vars.yml.example ansible/vars.yml
+
+mc_server_name: "Pieceocraft"
+mc_level_name: "PieceocraftWorld"
+
+# Empty = a random seed, picked the first time the server boots and then
+# fixed for that world's lifetime (changing the seed afterwards starts a
+# fresh world — Bedrock has no in-place re-roll).
+mc_level_seed: ""
+
+mc_gamemode: survival        # survival | creative | adventure
+mc_difficulty: easy          # peaceful | easy | normal | hard
+mc_allow_cheats: false
+mc_max_players: 10
+
+# Xbox gamertags or XUIDs, comma-separated — these players get operator
+# (build/break anywhere, cheats, kick/ban) the moment they first join.
+# Gamertags are resolved to XUIDs at container startup over the internet
+# (Xbox's MCProfile API), so the player needs to have signed into Xbox Live
+# with that gamertag at least once already — brand new tags won't resolve.
+# Example: mc_ops: "Steve123,1234567890123456"
+mc_ops: ""
+
+# Only takes effect if mc_allow_list is flipped to true in
+# ansible/deploy.yml's vars: block — off by default because Tailscale is
+# already the real access control (see the comment there). Format is
+# stricter than mc_ops above: "name:XUID" pairs, comma-separated — a bare
+# gamertag is NOT auto-resolved here. Find a XUID in the server log the
+# first time that player joins.
+# Example: mc_allow_list_users: "Steve123:1234567890123456"
+mc_allow_list_users: ""
