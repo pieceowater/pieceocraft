@@ -82,11 +82,11 @@
     mc_timezone: Asia/Almaty
 
     # Pinned, not LATEST — see the matching comment in docker-compose.yml for
-    # why (the newest build available as of 2026-09-16, 1.26.51.1, never
+    # why (the newest build available as of 2026-09-16, 1.26.45.1.1, never
     # actually binds its listening socket on Linux; this is the last one
     # confirmed to work, and it happens to match this server's own phone's
     # client version too). Check that comment before bumping this.
-    mc_version: "1.26.51"
+    mc_version: "1.26.45.1"
 
     # Gamerules reapplied (harmlessly — re-setting an already-true value is a
     # no-op) on every deploy: keepinventory so dying doesn't cost you your
