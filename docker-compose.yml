@@ -13,7 +13,7 @@
 # working socket (checked the kernel's own UDP socket table inside the
 # container — no listener on 19132 in either protocol family, reproduced
 # identically under both Docker's bridge network and --network host, so
-# it's the binary itself, not anything about this compose file). 1.26.45.1
+# it's the binary itself, not anything about this compose file). 1.26.51
 # is the last version confirmed to bind correctly, and not coincidentally —
 # Bedrock's client/server protocol is version-sensitive, so it's worth
 # matching whatever your own client is on anyway (check a connecting
@@ -39,7 +39,7 @@ services:
     container_name: pieceocraft-bedrock
     environment:
       EULA: "TRUE"
-      VERSION: ${MC_VERSION:-1.26.45.1}
+      VERSION: ${MC_VERSION:-1.26.51}
       # Heads-up line on the console, then a clean `stop` this many seconds
       # later, on `docker compose stop` — without it a slow save can get cut
       # off by Docker's own kill timeout instead of finishing.

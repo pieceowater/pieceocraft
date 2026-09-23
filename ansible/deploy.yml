@@ -86,7 +86,7 @@
     # actually binds its listening socket on Linux; this is the last one
     # confirmed to work, and it happens to match this server's own phone's
     # client version too). Check that comment before bumping this.
-    mc_version: "1.26.45.1"
+    mc_version: "1.26.51"
 
     # Gamerules reapplied (harmlessly — re-setting an already-true value is a
     # no-op) on every deploy: keepinventory so dying doesn't cost you your

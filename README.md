@@ -188,7 +188,7 @@ simply broken on Linux: it logs `Accepting clients on [::]:19132` and
 working socket — confirmed by checking the kernel's own UDP socket table
 inside the container (no listener on `19132` in either protocol family),
 reproduced identically under both Docker's default bridge network and
-`--network host`. `1.26.45.1` is the last version confirmed to actually
+`--network host`. `1.26.51` is the last version confirmed to actually
 bind and pass traffic.
 
 **Bumping `mc_version` later**, once Mojang ships something past `1.26.51.1`
