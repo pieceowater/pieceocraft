@@ -182,16 +182,16 @@ This wasn't the original plan — `VERSION=LATEST` sounds like the right
 default, since Bedrock's client/server protocol is version-sensitive and
 mobile clients auto-update through the App/Play Store, so in *principle*
 holding the server back is what should break connections, not prevent them.
-In practice, the newest build available as of 2026-09-16 (`1.26.45.1.1`) is
+In practice, the newest build available as of 2026-09-16 (`1.26.51.1.1`) is
 simply broken on Linux: it logs `Accepting clients on [::]:19132` and
 `Server started.` as if everything's fine, but never actually binds a
 working socket — confirmed by checking the kernel's own UDP socket table
 inside the container (no listener on `19132` in either protocol family),
 reproduced identically under both Docker's default bridge network and
-`--network host`. `1.26.45.1` is the last version confirmed to actually
+`--network host`. `1.26.51.1` is the last version confirmed to actually
 bind and pass traffic.
 
-**Bumping `mc_version` later**, once Mojang ships something past `1.26.45.1.1`
+**Bumping `mc_version` later**, once Mojang ships something past `1.26.51.1.1`
 and you want to move off the pin: test it stands alone before trusting it in
 the real deploy —
 
